@@ -1,39 +1,3 @@
-# Minhas Skills do Claude Code
-
-Coleção pessoal de skills do Claude Code, organizadas por categoria. As skills ficam instaladas em `.claude/skills/` e são rastreadas pelo `skills-lock.json`, que aponta cada skill para o repositório de origem no GitHub.
-
-## Como usar este repo
-
-### Como skills locais (só dentro deste repo)
-
-As skills já estão em `.claude/skills/` — basta abrir o Claude Code dentro deste diretório que elas ficam disponíveis automaticamente.
-
-### Como skills pessoais (em qualquer projeto)
-
-Crie um symlink de cada skill desejada para `~/.claude/skills/`:
-
-```bash
-ln -s /Users/whoami/Workspace/utils/skills/.claude/skills/<nome> ~/.claude/skills/<nome>
-```
-
-Ou todas de uma vez:
-
-```bash
-for skill in /Users/whoami/Workspace/utils/skills/.claude/skills/*/; do
-  ln -s "$skill" ~/.claude/skills/$(basename "$skill")
-done
-```
-
-### Adicionar uma skill nova
-
-1. Copie o template: `cp -r example-skill .claude/skills/minha-skill-nova`
-2. Edite `SKILL.md` (especialmente o `description` — é o gatilho que o Claude usa pra decidir quando carregar).
-3. Reinicie a sessão pra validar a ativação.
-
-### Atualizar / sincronizar skills externas
-
-O `skills-lock.json` mantém o `source` (repo GitHub), `skillPath` e `computedHash` de cada skill instalada de um repositório externo. Pra atualizar uma skill, refaça o pull do repo de origem e atualize o hash no lockfile.
-
 ## Skills por categoria
 
 ### Frontend — React
