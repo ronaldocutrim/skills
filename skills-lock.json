@@ -109,6 +109,12 @@
       "skillPath": "skills/opentui/SKILL.md",
       "computedHash": "2915038bb3297e759f740f9e6bfa885ed80a4a7fe945825f5874b48db9ce0fd2"
     },
+    "prisma-cli": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "skillPath": "prisma-cli/SKILL.md",
+      "computedHash": "762e2e2fed3fc765edfc97a80ab1358640304593e3d603649adc847b8190be1c"
+    },
     "react": {
       "source": "pedronauck/skills",
       "sourceType": "github",

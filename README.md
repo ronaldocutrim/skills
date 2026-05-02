@@ -30,6 +30,7 @@
 - **drizzle-orm** — schemas, queries, migrations Drizzle
 - **drizzle-postgres** — Postgres + Drizzle (RLS, JSONB, indexes, N+1)
 - **drizzle-safe-migrations** — migrations production-safe (backfills, constraints)
+- **prisma-cli** — referência completa de comandos Prisma CLI (init, generate, migrate, db, studio, mcp)
 
 ### AI / Agents
 - **ai-sdk** — Vercel AI SDK (generateText, streamText, ToolLoopAgent, tools)
