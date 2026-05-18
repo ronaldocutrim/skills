@@ -7,6 +7,18 @@
       "skillPath": "skills/ai-sdk/SKILL.md",
       "computedHash": "a4f58aca6e6d163f72242d8b92fba51d6522105094c8f37656feec1eeb45f6ff"
     },
+    "better-auth-best-practices": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/community/better-auth-best-practices/SKILL.md",
+      "computedHash": "cfc3c0f23acd1f2c99dce046ddb018a1d4bb94a23924f07a2090d4391c4416dd"
+    },
+    "better-auth-organization-best-practices": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/community/better-auth-organization-best-practices/SKILL.md",
+      "computedHash": "2744b3d7f123b8cd7449dff839a268247b9b67b46c475eb430e219e8b200028a"
+    },
     "brainstorming": {
       "source": "pedronauck/skills",
       "sourceType": "github",
