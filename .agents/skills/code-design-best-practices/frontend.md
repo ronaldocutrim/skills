@@ -5,9 +5,9 @@
 ```
 src/
 ├── lib/                          ◄ ONLY layer that imports external SDKs / clients
-│   ├── <api-client>                  HTTP client wrapper
+│   ├── <api-client>                  HTTP client wrapper (axios + auth interceptor)
 │   ├── <auth-client>                 sign-in / session client
-│   └── <storage-client>              browser storage adapter
+│   └── <storage-client>              browser/native storage adapter
 │
 ├── constants/                    ◄ data-only, ZERO logic
 │   ├── permissions.ts                SAME permission IDs as the backend
@@ -16,13 +16,26 @@ src/
 │
 ├── utils/                        ◄ pure functions — no I/O, no domain types
 │
-├── features/                     ◄ feature modules — the ONLY layer that owns data fetching
-│   └── <feature>/
-│       ├── index.ts                  barrel — only public exports
-│       ├── <feature>.routes.tsx      page/screen components — THIN: read params → call hooks → render
-│       ├── <feature>.hooks.ts        queries + mutations + cache invalidation
-│       ├── <feature>.schema.ts       form-input validation schemas
-│       └── <feature>.dto.ts          request / response types
+├── core/                         ◄ aggregate roots — SAME name as backend core/<aggregate> and DB tables
+│   └── <aggregate>/
+│       ├── pages/                    ◄ one folder per route/screen
+│       │   └── <page>/
+│       │       ├── Model.ts          ◄ data hook (TanStack Query) — receives deps, owns cache invalidation
+│       │       ├── ViewModel.ts      ◄ presentation hook — derives values, owns navigation/alerts/pickers
+│       │       └── View.tsx          ◄ pure render — props = { viewModel }, NO useState/useEffect/fetch
+│       │
+│       ├── data/                     ◄ pure async network functions (NOT hooks) — one file per endpoint action
+│       │   ├── get-<entities>.ts
+│       │   ├── create-<entity>.ts
+│       │   └── delete-<entity>.ts
+│       │
+│       ├── components/               ◄ feature-scoped components reused across pages of THIS aggregate
+│       ├── utils/                    ◄ pure feature helpers
+│       ├── types/                    ◄ shared entity types for the aggregate
+│       │   └── index.ts
+│       └── __tests__/                ◄ tests for Model and ViewModel (not View)
+│           ├── <page>-model.test.ts
+│           └── <page>-viewmodel.test.ts
 │
 ├── components/                   ◄ design-system primitives — ONE copy per app, NEVER shared across apps
 ├── hooks/                        ◄ cross-feature reusable hooks
@@ -31,9 +44,101 @@ src/
 └── main.tsx                      ◄ entrypoint
 ```
 
+The aggregate folder name MUST match the backend `core/<aggregate>/` and the database table prefix. See [database.md](./database.md) for the aggregate-naming rule.
+
+## MVVM layers
+
+Every page in `pages/<page>/` is composed of three files with strict responsibilities. Filenames are PascalCase (exception to the global kebab-case rule).
+
+### Model — `Model.ts`
+
+Hook named `use<Page>Model`. Owns data fetching, mutations, and cache invalidation.
+
+- Receives a typed `deps` parameter (functions from `data/` + IDs/context).
+- Uses TanStack Query: `useQuery`, `useMutation`, `useQueryClient`.
+- Applies defaults at this layer (e.g. `data === undefined ? [] : data`) — never push optional handling down to ViewModel/View.
+- Exposes `perform<Action>` callbacks and flags (`isLoading`, `isCreating`, `isDeleting`).
+- Exports `type <Page>Model = ReturnType<typeof use<Page>Model>`.
+
+```ts
+type use<Page>ModelDeps = {
+  get<Entities>: typeof get<Entities>;
+  create<Entity>: typeof create<Entity>;
+  <id>: string;
+};
+
+export function use<Page>Model(deps: use<Page>ModelDeps) {
+  const queryClient = useQueryClient();
+  const queryKey = ['<entities>', deps.<id>] as const;
+
+  const { data, isLoading } = useQuery({
+    queryKey,
+    queryFn: () => deps.get<Entities>(deps.<id>),
+    enabled: !!deps.<id>,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: deps.create<Entity>,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  return {
+    <entities>: data === undefined ? [] : data,
+    isLoading,
+    isCreating: createMutation.isPending,
+    performCreate: createMutation.mutateAsync,
+  };
+}
+
+export type <Page>Model = ReturnType<typeof use<Page>Model>;
+```
+
+### ViewModel — `ViewModel.ts`
+
+Hook named `use<Page>ViewModel`. Owns presentation logic and screen-bound side-effects.
+
+- Receives `params` with `{ model: <Page>Model, ...routeParams }`.
+- Derives display values (formatted strings, computed labels, header subtitles).
+- Owns side-effects tied to the screen: navigation (`router.push`/`router.back`), alerts, OS pickers, clipboard.
+- Exposes `handle<Event>` callbacks consumed by the View.
+- Exports `type <Page>ViewModel = ReturnType<typeof use<Page>ViewModel>`.
+
+### View — `View.tsx`
+
+Functional component named `<Page>View`. Pure render.
+
+- `type Props = { viewModel: <Page>ViewModel }`, parameter named `props`.
+- NO `useState`, NO `useEffect`, NO network calls, NO business logic.
+- Reads everything from `props.viewModel`.
+
+### Data — `data/<action>.ts`
+
+Pure async function — NOT a hook.
+
+- Wraps the HTTP client; instruments Sentry on 5xx/network errors; rethrows so the Model can surface `isError`.
+- One file per endpoint action: `get-expenses.ts`, `create-expense.ts`, `delete-expense.ts`.
+- Injected into Model as a dep — Model NEVER imports from `data/` directly. This makes Models trivial to test with stubs.
+
 ## Rules
 
-Functional components only. **Prop types declared above the component, never inline.**
+Functional components only — no class components, no `React.FC`. **Prop and parameter types declared above the function, never inline in the signature.** Mandatory naming:
+- Components: `type Props` — parameter is named `props`.
+- Hooks and functions: `type <functionName>Params` — parameter is named `params`. For Model deps, use `type use<Page>ModelDeps`.
+
+```ts
+// correct — component
+type Props = { viewModel: <Page>ViewModel };
+export function <Page>View(props: Props) { ... }
+
+// correct — hook
+type useDespesasViewModelParams = { model: DespesasModel; freightId: string };
+export function useDespesasViewModel(params: useDespesasViewModelParams) { ... }
+
+// wrong
+export function <Page>View({ viewModel }: { viewModel: <Page>ViewModel }) { ... }
+```
+
+Always handle **loading, error, and empty** states — the Model surfaces the flags, the ViewModel decides what to expose, the View renders. Prefer **composition** (compound components) over many boolean props.
 
 Routes are gated by a permission-aware wrapper that consumes the **same permission strings used on the backend**. Read groups / permissions / profile-status from the session-info endpoint (commonly `GET /api/me`).
 
@@ -47,6 +152,11 @@ When multiple frontends ship from the same monorepo, **each owns its own copy of
 
 1. Inline component prop types.
 2. Hardcoded colors / spacing outside design tokens.
-3. Forgetting to handle the `FAILED` (or equivalent error) status in the UI.
+3. Forgetting to handle loading / error / empty states.
 4. Class components.
 5. Shared UI package across multiple frontends in the same monorepo.
+6. `Model.ts` importing directly from `data/` (must come through `deps`).
+7. `useState` / `useEffect` / network calls inside `View.tsx`.
+8. Business logic or formatting inside `View.tsx`.
+9. Navigation, alerts, or OS pickers inside `Model.ts` (those belong in `ViewModel.ts`).
+10. Optional handling (`?? []`, `?? ''`) leaking into `ViewModel` or `View` — defaults belong in `Model`.
