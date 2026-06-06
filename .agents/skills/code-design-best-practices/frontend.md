@@ -121,6 +121,31 @@ Pure async function — NOT a hook.
 
 ## Rules
 
+### Required libraries
+
+These three are the default stack for every frontend in this codebase — do not reach for alternatives (SWR, Formik, manual `fetch` + `useState`, hand-rolled validators) without an explicit reason.
+
+- **TanStack Query** — the only way to manage server state. Queries and mutations live in `Model.ts`. NO `useEffect` + `useState` pairs to fetch data.
+- **React Hook Form** — the only way to manage form state (values, dirty/touched, submission, field-level errors). `useForm` lives in `ViewModel.ts` (or in a leaf form component when the form is fully self-contained). NO ad-hoc `useState` per field.
+- **Zod** — the only way to declare input validation. Declare the schema once, derive the TS type with `z.infer<typeof schema>`, and wire it into React Hook Form via `zodResolver`. Reuse the same schema for the payload type passed to `data/<action>.ts` when the shapes line up.
+
+```ts
+// ViewModel.ts
+const <action>Schema = z.object({ ... });
+type <Action>FormData = z.infer<typeof <action>Schema>;
+
+const form = useForm<<Action>FormData>({
+  resolver: zodResolver(<action>Schema),
+  defaultValues: { ... },
+});
+
+const handleSubmit = form.handleSubmit(async (values) => {
+  await params.model.perform<Action>(values);
+});
+```
+
+### Components and naming
+
 Functional components only — no class components, no `React.FC`. **Prop and parameter types declared above the function, never inline in the signature.** Mandatory naming:
 - Components: `type Props` — parameter is named `props`.
 - Hooks and functions: `type <functionName>Params` — parameter is named `params`. For Model deps, use `type use<Page>ModelDeps`.
@@ -160,3 +185,6 @@ When multiple frontends ship from the same monorepo, **each owns its own copy of
 8. Business logic or formatting inside `View.tsx`.
 9. Navigation, alerts, or OS pickers inside `Model.ts` (those belong in `ViewModel.ts`).
 10. Optional handling (`?? []`, `?? ''`) leaking into `ViewModel` or `View` — defaults belong in `Model`.
+11. Async server state managed with `useState` + `useEffect` instead of TanStack Query.
+12. Form state managed with one `useState` per field instead of React Hook Form.
+13. Hand-written validation (regex, if-blocks, manual error messages) instead of a Zod schema fed into `zodResolver`.
