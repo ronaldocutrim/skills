@@ -30,6 +30,8 @@ src/
 │       │   └── delete-<entity>.ts
 │       │
 │       ├── components/               ◄ feature-scoped components reused across pages of THIS aggregate
+│       ├── constants/                ◄ EVERY singleton/constant of THIS aggregate — NEVER declared inside components
+│       │   └── index.ts
 │       ├── utils/                    ◄ pure feature helpers
 │       ├── types/                    ◄ shared entity types for the aggregate
 │       │   └── index.ts
@@ -173,6 +175,15 @@ Every clickable element gets a pointer cursor affordance. Always preserve the fo
 
 When multiple frontends ship from the same monorepo, **each owns its own copy of the component primitives** — accept duplication over a shared UI package, since shared UI packages calcify quickly under multi-app pressure.
 
+### Aggregate constants
+
+Every singleton and constant that belongs to an aggregate lives in `core/<aggregate>/constants/` — and **nowhere else**. This is the single source of truth for anything fixed and shared inside the aggregate: default values, option/lookup tables, query-key prefixes, status maps, magic numbers/strings, config objects, and any module-level singleton (a configured client instance, a cache, a formatter).
+
+- **NEVER declare constants inside a component** (`View.tsx`, feature components) or inside `Model.ts` / `ViewModel.ts`. A literal that only one component uses still moves to `constants/` the moment it carries meaning (an option list, a limit, a label map) — components only consume constants, never define them.
+- Inline literals are allowed only when they are intrinsic to the JSX and carry no domain meaning (e.g. `flex={1}`, a single icon size). The moment a value names a rule, a default, or a set of options, it belongs in `constants/`.
+- The folder is **data-only, ZERO logic** — same rule as the root `constants/`. Derivations go to `utils/`.
+- Cross-feature constants belong in the **root** `src/constants/`; aggregate-only constants stay in `core/<aggregate>/constants/`. Never reach into another aggregate's `constants/`.
+
 ## Frontend anti-patterns
 
 1. Inline component prop types.
@@ -188,3 +199,4 @@ When multiple frontends ship from the same monorepo, **each owns its own copy of
 11. Async server state managed with `useState` + `useEffect` instead of TanStack Query.
 12. Form state managed with one `useState` per field instead of React Hook Form.
 13. Hand-written validation (regex, if-blocks, manual error messages) instead of a Zod schema fed into `zodResolver`.
+14. Constants or singletons declared inside components / `Model.ts` / `ViewModel.ts` instead of `core/<aggregate>/constants/`.
