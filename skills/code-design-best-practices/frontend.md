@@ -29,7 +29,11 @@ src/
 │       │   ├── create-<entity>.ts
 │       │   └── delete-<entity>.ts
 │       │
-│       ├── components/               ◄ feature-scoped components reused across pages of THIS aggregate
+│       ├── components/               ◄ feature components — each in its OWN folder
+│       │   └── <component>/
+│       │       ├── use-<component>.ts    ◄ SMART hook — all logic (only if the component owns any)
+│       │       ├── <component>.tsx       ◄ DUMB render — zero inline logic
+│       │       └── index.ts              ◄ exports ONLY the component
 │       ├── constants/                ◄ EVERY singleton/constant of THIS aggregate — NEVER declared inside components
 │       │   └── index.ts
 │       ├── utils/                    ◄ pure feature helpers
@@ -39,7 +43,10 @@ src/
 │           ├── <page>-model.test.ts
 │           └── <page>-viewmodel.test.ts
 │
-├── components/                   ◄ design-system primitives — ONE copy per app, NEVER shared across apps
+├── components/                   ◄ design-system primitives (DUMB — ZERO logic) — ONE copy per app, NEVER shared across apps
+│   └── <primitive>/                  each component is a folder
+│       ├── <primitive>.tsx           render + tokens, no hook
+│       └── index.ts                  exports ONLY the component
 ├── hooks/                        ◄ cross-feature reusable hooks
 ├── providers/                    ◄ context providers (auth, theme, branding)
 ├── app.tsx                       ◄ composition root: routes + providers + permission gating
@@ -175,6 +182,105 @@ Every clickable element gets a pointer cursor affordance. Always preserve the fo
 
 When multiple frontends ship from the same monorepo, **each owns its own copy of the component primitives** — accept duplication over a shared UI package, since shared UI packages calcify quickly under multi-app pressure.
 
+### Smart and dumb components
+
+Logic and rendering never live in the same file. A component's **smart** half is always a **hook**; its **dumb** half is the render. This is the MVVM split (`Model`/`ViewModel` = smart, `View` = dumb) applied at every level, including single low-level components.
+
+- **Smart** = hooks. At page level: `Model.ts` + `ViewModel.ts`. At component level: a colocated `use<Component>` hook. Hooks own data fetching, mutations, derivations, navigation, and every side-effect. **This is the ONLY place logic lives.**
+- **Dumb** = the render files (`View.tsx`, feature components, design-system primitives). The component **body carries ZERO logic** — it either takes pure props or calls its own single `use<Component>()` hook, then returns markup. No inline queries, mutations, navigation, or domain formatting.
+
+Two tiers of components below the page:
+
+1. **Design-system primitives** (`src/components/`) — the lowest tier, shared across the app. **Zero logic, zero domain knowledge, never a hook.** Props → markup + design tokens, nothing else. NO TanStack Query, NO domain types, NO navigation, NO formatting of domain values, NO `import` from `core/`. A primitive may hold *purely visual* self-contained state (a `<Popover>` open flag, hover, controlled-input focus) — never business/domain state.
+2. **Feature components** (`core/<aggregate>/components/`) — reused across the aggregate's pages. **Default to dumb**: receive data as props already derived by the page's ViewModel. When a component is **genuinely self-contained and reused across pages** (a picker that loads its own options, a notifications bell), it owns its logic in a colocated `use<Component>` hook — never inline in the component body.
+
+Prefer lifting data to the page's `Model` and passing props down. Give a component its own `use<Component>` hook **only** when it is self-contained and reused across pages — otherwise you fragment the fetch and lose the Model's centralized cache orchestration. A component body with a `useQuery`, a `router.push`, or a `formatCurrency` inside it is the most common violation: move it into the hook (or hoist it to the page's Model/ViewModel).
+
+### Component folder layout
+
+**Every component is a folder**, never a loose file — primitives and feature components alike.
+
+```
+<component-name>/
+├── use-<component-name>.ts   ◄ SMART — all logic (queries, mutations, derivations, side-effects). Present ONLY when the component owns logic.
+├── <component-name>.tsx      ◄ DUMB — calls its own use-hook (or takes pure props) and renders. ZERO inline logic.
+└── index.ts                  ◄ re-exports ONLY the component — NEVER the hook
+```
+
+- The render file `<component-name>.tsx` exports `<ComponentName>` (PascalCase). If the component owns logic, its body calls `use<ComponentName>()` **once** and renders the result — nothing else.
+- The hook file `use-<component-name>.ts` exports `use<ComponentName>` and holds every query, mutation, derivation, and side-effect. It receives its `data/` functions as injected deps (same rule as `Model` — testable with stubs).
+- `index.ts` exports **only the component**. The hook stays **private to the folder** — consumers import `<ComponentName>` and see a dumb, props-only API. Never re-export the hook.
+- Files are kebab-case (`freight-picker.tsx`, `use-freight-picker.ts`); the component is PascalCase, the hook is camelCase. This is NOT the MVVM PascalCase exception — component folders keep kebab-case filenames.
+- A pure leaf with no logic (a primitive, a props-only feature component) **skips the hook file** — just `<component-name>.tsx` + `index.ts`.
+
+```ts
+// core/freight/components/freight-picker/use-freight-picker.ts — SMART (private to the folder)
+type useFreightPickerParams = { getFreights: typeof getFreights };
+
+export function useFreightPicker(params: useFreightPickerParams) {
+  const { data, isLoading } = useQuery({ queryKey: ['freights'], queryFn: params.getFreights });
+  return { options: data === undefined ? [] : data.map(toOption), isLoading };
+}
+```
+
+```tsx
+// core/freight/components/freight-picker/freight-picker.tsx — DUMB, zero inline logic
+type Props = { value: string; onChange: (value: string) => void };
+
+export function FreightPicker(props: Props) {
+  const { options, isLoading } = useFreightPicker({ getFreights });
+  if (isLoading) return <Skeleton />;
+  return <Select options={options} value={props.value} onChange={props.onChange} />;
+}
+```
+
+```ts
+// core/freight/components/freight-picker/index.ts — exports ONLY the component
+export { FreightPicker } from './freight-picker';
+```
+
+### Loading patterns
+
+Loading is **derived state, never `useState`**. The flags originate in the **Model** (from TanStack Query), the **ViewModel** turns them into a single status, and the **View** renders the matching shape with dumb primitives.
+
+**Flags come from the Model:**
+- `isLoading` — first fetch, no data yet.
+- `isFetching` — background refetch with data already on screen.
+- `isCreating` / `isUpdating` / `isDeleting` — from `mutation.isPending`.
+
+**Pick the shape by context:**
+- **Initial load** (no data yet) → a **skeleton** that mirrors the final layout. Not a centered spinner for content regions.
+- **Mutation in flight** → **disable the trigger** and show an inline pending affordance (button spinner + disabled label). The rest of the screen stays interactive. Prevents double-submit.
+- **Background refetch** (data already visible) → a **subtle** indicator (top progress bar, reduced opacity). Never replace visible data with a skeleton.
+
+**Resolve states in a fixed precedence** — error → initial-loading → empty → content. Derive one status in the ViewModel; branch once in the View.
+
+```ts
+// ViewModel.ts — collapse raw flags into a single status; never leak them to the View
+type <Page>Status = 'error' | 'loading' | 'empty' | 'ready';
+
+function resolveStatus(params: use<Page>ViewModelParams): <Page>Status {
+  if (params.model.isError) return 'error';
+  if (params.model.isLoading) return 'loading';
+  if (params.model.<entities>.length === 0) return 'empty';
+  return 'ready';
+}
+```
+
+```tsx
+// View.tsx — one branch, a dumb primitive for each state
+export function <Page>View(props: Props) {
+  const { status } = props.viewModel;
+  if (status === 'error') return <ErrorState onRetry={props.viewModel.handleRetry} />;
+  if (status === 'loading') return <<Page>Skeleton />;
+  if (status === 'empty') return <EmptyState />;
+  return <<Page>Content viewModel={props.viewModel} />;
+}
+```
+
+- **Skeletons are dumb primitives** — one `<Skeleton>` in `src/components/`, composed into feature-level skeletons. Token-driven, zero logic.
+- **Mutation triggers** read the matching flag: `disabled={props.viewModel.isSubmitting}` plus a pending label — the flag comes from the Model, surfaced by the ViewModel.
+
 ### Aggregate constants
 
 Every singleton and constant that belongs to an aggregate lives in `core/<aggregate>/constants/` — and **nowhere else**. This is the single source of truth for anything fixed and shared inside the aggregate: default values, option/lookup tables, query-key prefixes, status maps, magic numbers/strings, config objects, and any module-level singleton (a configured client instance, a cache, a formatter).
@@ -200,3 +306,11 @@ Every singleton and constant that belongs to an aggregate lives in `core/<aggreg
 12. Form state managed with one `useState` per field instead of React Hook Form.
 13. Hand-written validation (regex, if-blocks, manual error messages) instead of a Zod schema fed into `zodResolver`.
 14. Constants or singletons declared inside components / `Model.ts` / `ViewModel.ts` instead of `core/<aggregate>/constants/`.
+15. Logic (data fetching, mutations, domain formatting, navigation, side-effects) inside a design-system primitive or any UI component — it belongs in `Model.ts` / `ViewModel.ts`.
+16. Design-system primitive that imports from `core/`, holds domain state, or knows domain types.
+17. Loading tracked with `useState` instead of the Model's TanStack Query flags.
+18. Centered spinner where a skeleton belongs, or replacing already-visible data with a full skeleton during a background refetch.
+19. Mutation trigger without a disabled / pending state (double-submit risk).
+20. Component defined as a loose file instead of its own folder with an `index.ts`.
+21. `index.ts` re-exporting the `use<Component>` hook — the smart half must stay private to the folder.
+22. Logic inline in a component body instead of its colocated `use<Component>` hook.
